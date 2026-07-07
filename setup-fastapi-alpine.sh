@@ -97,7 +97,11 @@ fi
 
 echo "Instaluję pakiety systemowe..."
 apk update
-apk add python3 py3-pip py3-virtualenv
+apk add python3 py3-pip py3-virtualenv ca-certificates curl
+
+APP_TITLE_JSON="$(APP_TITLE_VALUE="$APP_TITLE" python3 -c 'import json, os; print(json.dumps(os.environ["APP_TITLE_VALUE"]))')"
+APP_TITLE_SHELL="$(APP_TITLE_VALUE="$APP_TITLE" python3 -c 'import os, shlex; print(shlex.quote(os.environ["APP_TITLE_VALUE"]))')"
+APP_DESCRIPTION_SHELL="$(APP_TITLE_VALUE="$APP_TITLE" python3 -c 'import os, shlex; print(shlex.quote("FastAPI web application: " + os.environ["APP_TITLE_VALUE"]))')"
 
 mkdir -p "$APP_DIR/app/templates" "$APP_DIR/static" "$LOG_DIR"
 
@@ -112,17 +116,22 @@ EOF
 touch "$APP_DIR/app/__init__.py"
 
 cat > "$APP_DIR/app/main.py" <<EOF
+from pathlib import Path
+
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-APP_TITLE = $(APP_TITLE_VALUE="$APP_TITLE" python3 -c 'import os, json; print(json.dumps(os.environ["APP_TITLE_VALUE"]))')
+APP_TITLE = $APP_TITLE_JSON
+BASE_DIR = Path(__file__).resolve().parent.parent
+TEMPLATES_DIR = BASE_DIR / "app" / "templates"
+STATIC_DIR = BASE_DIR / "static"
 
 app = FastAPI(title=APP_TITLE)
 
-templates = Jinja2Templates(directory="app/templates")
-app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 @app.get("/health")
@@ -136,11 +145,9 @@ def health():
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
     return templates.TemplateResponse(
-        "index.html",
-        {
-            "request": request,
-            "title": APP_TITLE,
-        },
+        request=request,
+        name="index.html",
+        context={"title": APP_TITLE},
     )
 EOF
 
@@ -289,7 +296,51 @@ curl -fsS "http://127.0.0.1:$APP_PORT/health" || true
 echo
 EOF
 
-chmod +x "$APP_DIR/run.sh" "$APP_DIR/start.sh" "$APP_DIR/stop.sh" "$APP_DIR/restart.sh" "$APP_DIR/status.sh"
+cat > "$APP_DIR/uninstall.sh" <<EOF
+#!/bin/sh
+set -eu
+
+APP_TITLE=$APP_TITLE_SHELL
+APP_DIR="$APP_DIR"
+SERVICE_NAME="$SERVICE_NAME"
+INIT_FILE="$INIT_FILE"
+LOG_DIR="$LOG_DIR"
+
+if [ "\$(id -u)" != "0" ]; then
+    echo "Ten skrypt uruchom jako root, np.:"
+    echo "  doas sh \$0"
+    echo "albo:"
+    echo "  sudo sh \$0"
+    exit 1
+fi
+
+echo "Zostanie usunięta aplikacja:"
+echo "  nazwa:   \$APP_TITLE"
+echo "  katalog: \$APP_DIR"
+echo "  usługa:  \$SERVICE_NAME"
+echo "  logi:    \$LOG_DIR"
+printf "Kontynuować? [tak/N]: "
+read -r REPLY
+
+case "\$REPLY" in
+    tak|TAK|t|T|yes|YES|y|Y) ;;
+    *)
+        echo "Przerwano."
+        exit 0
+        ;;
+esac
+
+rc-service "\$SERVICE_NAME" stop >/dev/null 2>&1 || true
+rc-update del "\$SERVICE_NAME" default >/dev/null 2>&1 || true
+rm -f "\$INIT_FILE"
+rm -f "/run/\$SERVICE_NAME.pid"
+rm -rf "\$LOG_DIR"
+rm -rf "\$APP_DIR"
+
+echo "Aplikacja została usunięta."
+EOF
+
+chmod +x "$APP_DIR/run.sh" "$APP_DIR/start.sh" "$APP_DIR/stop.sh" "$APP_DIR/restart.sh" "$APP_DIR/status.sh" "$APP_DIR/uninstall.sh"
 
 echo "Tworzę środowisko venv..."
 cd "$APP_DIR"
@@ -303,7 +354,7 @@ cat > "$INIT_FILE" <<EOF
 #!/sbin/openrc-run
 
 name="$SERVICE_NAME"
-description="FastAPI web application: $APP_TITLE"
+description=$APP_DESCRIPTION_SHELL
 
 directory="$APP_DIR"
 command="$APP_DIR/run.sh"
@@ -350,3 +401,4 @@ echo "  rc-service $SERVICE_NAME status"
 echo "  rc-service $SERVICE_NAME restart"
 echo "  rc-service $SERVICE_NAME stop"
 echo "  tail -f $LOG_DIR/output.log $LOG_DIR/error.log"
+echo "  sh $APP_DIR/uninstall.sh"
