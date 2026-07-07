@@ -5,6 +5,9 @@
 
 set -eu
 
+DEFAULT_APP_TITLE="FastAPP"
+DEFAULT_APP_PORT="8080"
+
 need_root() {
     if [ "$(id -u)" != "0" ]; then
         echo "Ten skrypt uruchom jako root, np.:"
@@ -47,12 +50,11 @@ need_root
 echo "Generator środowiska FastAPI dla Alpine Linux"
 echo
 
-ask "Podaj nazwę systemu/aplikacji: "
+ask "Podaj nazwę systemu/aplikacji [$DEFAULT_APP_TITLE]: "
 APP_TITLE="$REPLY"
 
 if [ -z "$APP_TITLE" ]; then
-    echo "Nazwa nie może być pusta."
-    exit 1
+    APP_TITLE="$DEFAULT_APP_TITLE"
 fi
 
 APP_NAME="$(slugify "$APP_TITLE")"
@@ -67,8 +69,12 @@ if [ "$APP_NAME" != "$APP_TITLE" ]; then
     echo "Nazwa techniczna została uproszczona do: $APP_NAME"
 fi
 
-ask "Podaj port HTTP, np. 8000: "
+ask "Podaj port HTTP [$DEFAULT_APP_PORT]: "
 APP_PORT="$REPLY"
+
+if [ -z "$APP_PORT" ]; then
+    APP_PORT="$DEFAULT_APP_PORT"
+fi
 
 if ! valid_port "$APP_PORT"; then
     echo "Niepoprawny port: $APP_PORT"
