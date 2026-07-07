@@ -35,7 +35,11 @@ valid_port() {
 
 ask() {
     printf "%s" "$1"
-    read -r REPLY
+    if [ -r /dev/tty ]; then
+        IFS= read -r REPLY < /dev/tty
+    else
+        IFS= read -r REPLY
+    fi
 }
 
 need_root
@@ -306,6 +310,15 @@ SERVICE_NAME="$SERVICE_NAME"
 INIT_FILE="$INIT_FILE"
 LOG_DIR="$LOG_DIR"
 
+ask() {
+    printf "%s" "\$1"
+    if [ -r /dev/tty ]; then
+        IFS= read -r REPLY < /dev/tty
+    else
+        IFS= read -r REPLY
+    fi
+}
+
 if [ "\$(id -u)" != "0" ]; then
     echo "Ten skrypt uruchom jako root, np.:"
     echo "  doas sh \$0"
@@ -319,8 +332,7 @@ echo "  nazwa:   \$APP_TITLE"
 echo "  katalog: \$APP_DIR"
 echo "  usługa:  \$SERVICE_NAME"
 echo "  logi:    \$LOG_DIR"
-printf "Kontynuować? [tak/N]: "
-read -r REPLY
+ask "Kontynuować? [tak/N]: "
 
 case "\$REPLY" in
     tak|TAK|t|T|yes|YES|y|Y) ;;
